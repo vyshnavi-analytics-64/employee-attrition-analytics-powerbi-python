@@ -1,0 +1,76 @@
+"""
+Employee Attrition Analytics
+Author: Vyshnavi Katkam
+Description:
+- Cleans HR data
+- Engineers age, tenure, attrition metrics
+- Exports analytics-ready datasets for Power BI
+"""
+import pandas as pd
+
+# Load data
+file_path = "data/raw/Employee Details.xlsx"
+df = pd.read_excel(file_path)
+
+# Standardize column names
+df.columns = (
+    df.columns.str.strip()
+              .str.lower()
+              .str.replace(" ", "_")
+)
+
+# Convert date columns
+date_cols = ["hire_date", "exit_date", "date_of_birth", "performance_date"]
+for col in date_cols:
+    df[col] = pd.to_datetime(df[col], errors="coerce")
+
+# Feature engineering
+today = pd.Timestamp.today()
+
+df["age"] = (today - df["date_of_birth"]).dt.days // 365
+
+df["tenure_years"] = (
+    (df["exit_date"].fillna(today) - df["hire_date"])
+    .dt.days / 365
+).round(2)
+
+df["age_band"] = pd.cut(
+    df["age"],
+    bins=[18, 25, 35, 45, 55, 65],
+    labels=["18-25", "26-35", "36-45", "46-55", "56-65"]
+)
+
+df["tenure_band"] = pd.cut(
+    df["tenure_years"],
+    bins=[0, 1, 3, 5, 10, 40],
+    labels=["<1", "1-3", "3-5", "5-10", "10+"]
+)
+
+df["attrition_flag"] = df["exit_date"].notna().astype(int)
+
+# Aggregations
+attrition_dept = (
+    df.groupby("department")
+      .agg(
+          total_employees=("employee_id", "count"),
+          attrition_count=("attrition_flag", "sum")
+      )
+      .reset_index()
+)
+
+attrition_dept["attrition_rate"] = (
+    attrition_dept["attrition_count"] / attrition_dept["total_employees"]
+)
+
+df["year_month"] = df["performance_date"].dt.to_period("M")
+
+monthly_perf = (
+    df.groupby("year_month")
+      .agg(avg_performance=("performance_score", "mean"))
+      .reset_index()
+)
+
+# Export processed data
+df.to_csv("data/processed/employee_master.csv", index=False)
+attrition_dept.to_csv("data/processed/attrition_by_department.csv", index=False)
+monthly_perf.to_csv("data/processed/monthly_performance.csv", index=False)
